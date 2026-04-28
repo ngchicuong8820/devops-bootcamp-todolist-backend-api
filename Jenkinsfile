@@ -12,14 +12,14 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 1: SOURCE
-        // Trigger: PR hoặc push main
+        // Chạy: PR + main push
         // ══════════════════════════════════════
         stage('Source') {
             steps {
                 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 echo "🔍 Branch : ${env.BRANCH_NAME ?: 'manual'}"
+                echo "🔍 PR#    : ${env.CHANGE_ID ?: 'N/A - Branch Push'}"
                 echo "🔍 Build  : #${BUILD_NUMBER}"
-                echo "🔍 Commit : ${env.GIT_COMMIT ?: 'N/A'}"
                 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 checkout scm
             }
@@ -27,10 +27,11 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 2: BUILD
+        // Chạy: PR + main push
         // ══════════════════════════════════════
         stage('Build') {
             steps {
-                echo "🔨 Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
+                echo "🔨 Building: ${IMAGE_NAME}:${IMAGE_TAG}"
                 sh """
                     docker build \
                         -t ${IMAGE_NAME}:${IMAGE_TAG} \
@@ -43,6 +44,7 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 3: TEST
+        // Chạy: PR + main push
         // ══════════════════════════════════════
         stage('Test') {
             steps {
@@ -59,7 +61,8 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 4: QUALITY GATE
-        // ⛔ CI workflow DỪNG Ở ĐÂY nếu là PR
+        // Chạy: PR + main push
+        // ⛔ Pipeline DỪNG ở đây nếu là PR
         // ══════════════════════════════════════
         stage('Quality Gate') {
             steps {
@@ -81,14 +84,17 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 5: PUSH TO DOCKER HUB
-        // Chỉ chạy khi push vào main
+        // Chỉ chạy: main push (KHÔNG phải PR)
         // ══════════════════════════════════════
         stage('Push to Docker Hub') {
             when {
-                branch 'main'
+                allOf {
+                    branch 'main'
+                    not { changeRequest() }
+                }
             }
             steps {
-                echo "📦 Pushing ${IMAGE_NAME}:${IMAGE_TAG} to Docker Hub..."
+                echo "📦 Pushing ${IMAGE_NAME}:${IMAGE_TAG}..."
                 withCredentials([usernamePassword(
                     credentialsId: 'DOCKERHUB_CREDS',
                     usernameVariable: 'DOCKER_USER',
@@ -97,11 +103,9 @@ pipeline {
                     sh """
                         echo "${DOCKER_PASS}" | docker login \
                             -u "${DOCKER_USER}" --password-stdin
-
                         docker push ${IMAGE_NAME}:${IMAGE_TAG}
                         docker push ${IMAGE_NAME}:latest
-
-                        echo "✅ Push SUCCESS: ${IMAGE_NAME}:${IMAGE_TAG}"
+                        echo "✅ Push SUCCESS"
                     """
                 }
             }
@@ -109,26 +113,26 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 6: DEPLOY DEV
-        // Docker Compose trên cùng EC2 này
+        // Chỉ chạy: main push
         // ══════════════════════════════════════
         stage('Deploy Dev') {
             when {
-                branch 'main'
+                allOf {
+                    branch 'main'
+                    not { changeRequest() }
+                }
             }
             steps {
                 echo "🚀 Deploying to Dev (Docker Compose)..."
                 sh """
-                    # Update IMAGE_TAG trong compose file
                     IMAGE_TAG=${IMAGE_TAG} docker compose \
                         -f ${COMPOSE_FILE} \
                         up -d backend --pull always
 
-                    # Chờ backend healthy
                     sleep 10
 
-                    # Kiểm tra health
                     curl -f http://localhost:5000/health || \
-                        (echo "❌ Backend health check FAILED" && exit 1)
+                        (echo "❌ Health check FAILED" && exit 1)
 
                     echo "✅ Deploy Dev SUCCESS"
                 """
@@ -137,10 +141,14 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 7: MANUAL APPROVAL
+        // Chỉ chạy: main push
         // ══════════════════════════════════════
         stage('Approval: Deploy to Prod?') {
             when {
-                branch 'main'
+                allOf {
+                    branch 'main'
+                    not { changeRequest() }
+                }
             }
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
@@ -155,56 +163,56 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 8: DEPLOY PROD
-        // Kind K8s trên cùng EC2 này
+        // Chỉ chạy: main push
         // ══════════════════════════════════════
         stage('Deploy Prod') {
             when {
-                branch 'main'
+                allOf {
+                    branch 'main'
+                    not { changeRequest() }
+                }
             }
             steps {
                 echo "☸️ Deploying to Production (Kind K8s)..."
                 sh """
-                    # Update image mới lên K8s
                     kubectl set image deployment/backend \
                         backend=${IMAGE_NAME}:${IMAGE_TAG} \
                         -n todolist
 
-                    # Chờ rollout hoàn thành
                     kubectl rollout status deployment/backend \
                         -n todolist --timeout=120s
 
-                    echo "✅ Deploy Prod SUCCESS: ${IMAGE_NAME}:${IMAGE_TAG}"
+                    echo "✅ Deploy Prod SUCCESS"
                 """
             }
         }
     }
 
-    // ══════════════════════════════════════
-    // POST ACTIONS
-    // ══════════════════════════════════════
     post {
         success {
-            echo """
-            ✅ Pipeline SUCCESS
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            Image : ${IMAGE_NAME}:${IMAGE_TAG}
-            Branch: ${env.BRANCH_NAME ?: 'manual'}
-            Build : #${BUILD_NUMBER}
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            """
+            script {
+                if (env.CHANGE_ID) {
+                    echo """
+                    ✅ CI SUCCESS — PR #${env.CHANGE_ID}
+                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    Stage 1-4 PASSED → Ready to merge!
+                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    """
+                } else {
+                    echo """
+                    ✅ CD SUCCESS
+                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    Image : ${IMAGE_NAME}:${IMAGE_TAG}
+                    Branch: ${env.BRANCH_NAME}
+                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    """
+                }
+            }
         }
         failure {
-            echo """
-            ❌ Pipeline FAILED
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            Branch: ${env.BRANCH_NAME ?: 'manual'}
-            Build : #${BUILD_NUMBER}
-            → Check Console Output để xem lỗi
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            """
+            echo "❌ Pipeline FAILED — Build #${BUILD_NUMBER}"
         }
         always {
-            echo "🧹 Cleaning up unused images..."
             sh "docker image prune -f || true"
         }
     }

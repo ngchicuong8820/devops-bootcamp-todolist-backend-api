@@ -115,29 +115,31 @@ pipeline {
         // STAGE 6: DEPLOY DEV
         // Chỉ chạy: main push
         // ══════════════════════════════════════
-        stage('Deploy Dev') {
-            when {
-                allOf {
-                    branch 'main'
-                    not { changeRequest() }
-                }
-            }
-            steps {
-                echo "🚀 Deploying to Dev (Docker Compose)..."
-                sh """
-                    IMAGE_TAG=${IMAGE_TAG} docker compose \
-                        -f ${COMPOSE_FILE} \
-                        up -d backend --pull always
-
-                    sleep 10
-
-                    curl -f http://localhost:5000/health || \
-                        (echo "❌ Health check FAILED" && exit 1)
-
-                    echo "✅ Deploy Dev SUCCESS"
-                """
-            }
+stage('Deploy Dev') {
+    when {
+        allOf {
+            branch 'main'
+            not { changeRequest() }
         }
+    }
+    steps {
+        echo "🚀 Deploying to Dev (Docker Compose)..."
+        sh """
+            IMAGE_TAG=${IMAGE_TAG} docker compose \
+                -f ${COMPOSE_FILE} \
+                up -d backend --pull always
+
+            # Chờ lâu hơn để backend khởi động
+            sleep 30
+
+            # Dùng IP host thay vì localhost
+            curl -f http://10.0.1.43:5000/health || \
+                (echo "❌ Health check FAILED" && exit 1)
+
+            echo "✅ Deploy Dev SUCCESS"
+        """
+    }
+}
 
         // ══════════════════════════════════════
         // STAGE 7: MANUAL APPROVAL

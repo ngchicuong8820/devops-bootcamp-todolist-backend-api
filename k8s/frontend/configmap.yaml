@@ -4,4 +4,4 @@ metadata:
   name: frontend-config
   namespace: todolist
 data:
-  NEXT_PUBLIC_API_URL: "http://backend-service:5000/api"
+  NEXT_PUBLIC_API_URL: "http://32.195.232.187:5000/api"

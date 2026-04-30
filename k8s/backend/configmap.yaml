@@ -4,8 +4,8 @@ metadata:
   name: backend-config
   namespace: todolist
 data:
-  DATABASE_HOST: "postgres-service"
+  DATABASE_HOST: "3.208.143.37"
   DATABASE_PORT: "5432"
-  DATABASE_NAME: "todolist"
+  DATABASE_NAME: "todolist_prod"
   PORT: "5000"
   NODE_ENV: "production"

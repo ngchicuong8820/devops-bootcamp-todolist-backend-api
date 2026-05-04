@@ -122,17 +122,27 @@ stage('Deploy Dev') {
             not { changeRequest() }
         }
     }
+    environment {
+        DATABASE_HOST     = credentials('DB_HOST')
+        DATABASE_USER     = credentials('DB_USER')
+        DATABASE_PASSWORD = credentials('DB_PASSWORD')
+        APP_EC2_IP        = credentials('EC2_PUBLIC_IP')
+    }
     steps {
         echo "🚀 Deploying to Dev (Docker Compose)..."
         sh """
-            IMAGE_TAG=${IMAGE_TAG} docker compose \
-                -f ${COMPOSE_FILE} \
+            export DATABASE_HOST=${DATABASE_HOST}
+            export DATABASE_USER=${DATABASE_USER}
+            export DATABASE_PASSWORD=${DATABASE_PASSWORD}
+            export DATABASE_NAME=todolist_dev
+            export EC2_PUBLIC_IP=${APP_EC2_IP}
+            export IMAGE_TAG=${IMAGE_TAG}
+
+            docker compose -f ${COMPOSE_FILE} \
                 up -d backend --pull always
 
-            # Chờ lâu hơn để backend khởi động
             sleep 30
 
-            # Dùng IP host thay vì localhost
             curl -f http://10.0.1.43:5000/health || \
                 (echo "❌ Health check FAILED" && exit 1)
 
@@ -140,7 +150,6 @@ stage('Deploy Dev') {
         """
     }
 }
-
         // ══════════════════════════════════════
         // STAGE 7: MANUAL APPROVAL
         // Chỉ chạy: main push

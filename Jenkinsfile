@@ -116,40 +116,44 @@ pipeline {
         // Chỉ chạy: main push
         // ══════════════════════════════════════
 stage('Deploy Dev') {
-    when {
-        allOf {
-            branch 'main'
-            not { changeRequest() }
+            when {
+                allOf {
+                    branch 'main'
+                    not { changeRequest() }
+                }
+            }
+            environment {
+                DATABASE_HOST     = credentials('DB_HOST')
+                DATABASE_USER     = credentials('DB_USER')
+                DATABASE_PASSWORD = credentials('DB_PASSWORD')
+                APP_EC2_IP        = credentials('EC2_PUBLIC_IP')
+            }
+            steps {
+                echo "🚀 Deploying to Dev (Docker Compose)..."
+                sh """
+                    # Xóa container cũ nếu tồn tại
+                    docker stop todolist-backend || true
+                    docker rm todolist-backend || true
+
+                    export DATABASE_HOST=${DATABASE_HOST}
+                    export DATABASE_USER=${DATABASE_USER}
+                    export DATABASE_PASSWORD=${DATABASE_PASSWORD}
+                    export DATABASE_NAME=todolist_dev
+                    export EC2_PUBLIC_IP=${APP_EC2_IP}
+                    export IMAGE_TAG=${IMAGE_TAG}
+
+                    docker compose -f ${COMPOSE_FILE} \
+                        up -d backend --pull always
+
+                    sleep 30
+
+                    curl -f http://10.0.1.43:5000/health || \
+                        (echo "❌ Health check FAILED" && exit 1)
+
+                    echo "✅ Deploy Dev SUCCESS"
+                """
+            }
         }
-    }
-    environment {
-        DATABASE_HOST     = credentials('DB_HOST')
-        DATABASE_USER     = credentials('DB_USER')
-        DATABASE_PASSWORD = credentials('DB_PASSWORD')
-        APP_EC2_IP        = credentials('EC2_PUBLIC_IP')
-    }
-    steps {
-        echo "🚀 Deploying to Dev (Docker Compose)..."
-        sh """
-            export DATABASE_HOST=${DATABASE_HOST}
-            export DATABASE_USER=${DATABASE_USER}
-            export DATABASE_PASSWORD=${DATABASE_PASSWORD}
-            export DATABASE_NAME=todolist_dev
-            export EC2_PUBLIC_IP=${APP_EC2_IP}
-            export IMAGE_TAG=${IMAGE_TAG}
-
-            docker compose -f ${COMPOSE_FILE} \
-                up -d backend --pull always
-
-            sleep 30
-
-            curl -f http://10.0.1.43:5000/health || \
-                (echo "❌ Health check FAILED" && exit 1)
-
-            echo "✅ Deploy Dev SUCCESS"
-        """
-    }
-}
         // ══════════════════════════════════════
         // STAGE 7: MANUAL APPROVAL
         // Chỉ chạy: main push

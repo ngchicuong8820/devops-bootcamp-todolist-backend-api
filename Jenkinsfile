@@ -12,7 +12,6 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 1: SOURCE
-        // Chạy: PR + main push
         // ══════════════════════════════════════
         stage('Source') {
             steps {
@@ -27,7 +26,6 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 2: BUILD
-        // Chạy: PR + main push
         // ══════════════════════════════════════
         stage('Build') {
             steps {
@@ -43,48 +41,47 @@ pipeline {
         }
 
         // ══════════════════════════════════════
-        // STAGE 3: TEST
-        // Chạy: PR + main push
+        // STAGE 3+4: TEST + QUALITY GATE PARALLEL
+        // Chạy song song để tiết kiệm thời gian
         // ══════════════════════════════════════
-        stage('Test') {
-            steps {
-                echo "🧪 Running tests..."
-                sh """
-                    docker run --rm \
-                        --name test-backend-${BUILD_NUMBER} \
-                        ${IMAGE_NAME}:${IMAGE_TAG} \
-                        sh -c "npm test 2>&1 || true"
-                """
-                echo "✅ Test DONE"
-            }
-        }
+        stage('Test & Quality Gate') {
+            parallel {
 
-        // ══════════════════════════════════════
-        // STAGE 4: QUALITY GATE
-        // Chạy: PR + main push
-        // ⛔ Pipeline DỪNG ở đây nếu là PR
-        // ══════════════════════════════════════
-        stage('Quality Gate') {
-            steps {
-                echo "🔎 Running linter..."
-                sh """
-                    docker run --rm \
-                        --name lint-backend-${BUILD_NUMBER} \
-                        ${IMAGE_NAME}:${IMAGE_TAG} \
-                        sh -c "npm run lint 2>&1 || true"
-                """
-                echo "✅ Quality Gate PASSED"
-            }
-            post {
-                failure {
-                    error "❌ Quality Gate FAILED — blocking merge!"
+                stage('Test') {
+                    steps {
+                        echo "🧪 Running tests..."
+                        sh """
+                            docker run --rm \
+                                --name test-backend-${BUILD_NUMBER} \
+                                ${IMAGE_NAME}:${IMAGE_TAG} \
+                                sh -c "npm test 2>&1 || true"
+                        """
+                        echo "✅ Test DONE"
+                    }
+                }
+
+                stage('Quality Gate') {
+                    steps {
+                        echo "🔎 Running linter..."
+                        sh """
+                            docker run --rm \
+                                --name lint-backend-${BUILD_NUMBER} \
+                                ${IMAGE_NAME}:${IMAGE_TAG} \
+                                sh -c "npm run lint 2>&1 || true"
+                        """
+                        echo "✅ Quality Gate PASSED"
+                    }
+                    post {
+                        failure {
+                            error "❌ Quality Gate FAILED — blocking merge!"
+                        }
+                    }
                 }
             }
         }
 
         // ══════════════════════════════════════
         // STAGE 5: PUSH TO DOCKER HUB
-        // Chỉ chạy: main push (KHÔNG phải PR)
         // ══════════════════════════════════════
         stage('Push to Docker Hub') {
             when {
@@ -113,9 +110,8 @@ pipeline {
 
         // ══════════════════════════════════════
         // STAGE 6: DEPLOY DEV
-        // Chỉ chạy: main push
         // ══════════════════════════════════════
-stage('Deploy Dev') {
+        stage('Deploy Dev') {
             when {
                 allOf {
                     branch 'main'
@@ -131,7 +127,6 @@ stage('Deploy Dev') {
             steps {
                 echo "🚀 Deploying to Dev (Docker Compose)..."
                 sh """
-                    # Xóa container cũ nếu tồn tại
                     docker stop todolist-backend || true
                     docker rm todolist-backend || true
 
@@ -154,9 +149,9 @@ stage('Deploy Dev') {
                 """
             }
         }
+
         // ══════════════════════════════════════
         // STAGE 7: MANUAL APPROVAL
-        // Chỉ chạy: main push
         // ══════════════════════════════════════
         stage('Approval: Deploy to Prod?') {
             when {
@@ -178,7 +173,6 @@ stage('Deploy Dev') {
 
         // ══════════════════════════════════════
         // STAGE 8: DEPLOY PROD
-        // Chỉ chạy: main push
         // ══════════════════════════════════════
         stage('Deploy Prod') {
             when {

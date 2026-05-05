@@ -409,3 +409,4 @@ Created for DevOps Bootcamp
 # Test CI
 # Webhook test
 # trigger rebuild
+# update DB host to private IP

@@ -41,8 +41,7 @@ pipeline {
         }
 
         // ══════════════════════════════════════
-        // STAGE 3+4: TEST + QUALITY GATE PARALLEL
-        // Chạy song song để tiết kiệm thời gian
+        // STAGE 3: TEST + QUALITY GATE + DEP CHECK
         // ══════════════════════════════════════
         stage('Test & Quality Gate') {
             parallel {
@@ -77,11 +76,27 @@ pipeline {
                         }
                     }
                 }
+
+                // ══════════════════════════════
+                // Dependency Check
+                // ══════════════════════════════
+                stage('Dependency Check') {
+                    steps {
+                        echo "🔒 Checking dependencies for vulnerabilities..."
+                        sh """
+                            docker run --rm \
+                                --name dep-check-${BUILD_NUMBER} \
+                                ${IMAGE_NAME}:${IMAGE_TAG} \
+                                sh -c "npm audit --audit-level=high 2>&1 || true"
+                        """
+                        echo "✅ Dependency Check DONE"
+                    }
+                }
             }
         }
 
         // ══════════════════════════════════════
-        // STAGE 5: PUSH TO DOCKER HUB
+        // STAGE 4: PUSH TO DOCKER HUB
         // ══════════════════════════════════════
         stage('Push to Docker Hub') {
             when {
@@ -105,6 +120,32 @@ pipeline {
                         echo "✅ Push SUCCESS"
                     """
                 }
+            }
+        }
+
+        // ══════════════════════════════════════
+        // STAGE 5: IMAGE SCAN (Trivy)
+        // ══════════════════════════════════════
+        stage('Image Scan') {
+            when {
+                allOf {
+                    branch 'main'
+                    not { changeRequest() }
+                }
+            }
+            steps {
+                echo "🔍 Scanning ${IMAGE_NAME}:${IMAGE_TAG} for vulnerabilities..."
+                sh """
+                    docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        aquasec/trivy:latest image \
+                        --exit-code 0 \
+                        --severity HIGH,CRITICAL \
+                        --no-progress \
+                        --format table \
+                        ${IMAGE_NAME}:${IMAGE_TAG} 2>&1 || true
+                    echo "✅ Image Scan DONE"
+                """
             }
         }
 
